@@ -67,7 +67,6 @@ docker compose up --build
 This starts:
 - `redis` on `localhost:6379`
 - the app on `localhost:8080`
-- `redis-commander` (optional Redis UI) on `localhost:8081`
 
 ### Option B: locally with Gradle
 

@@ -1,9 +1,11 @@
 package com.example.cachestampede.service;
 
 import com.example.cachestampede.dto.Product;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.redisson.api.RBucket;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +45,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * normal case in production), each instance would independently miss the
  * cache and stampede the backing store - so the lock has to live somewhere
  * shared, i.e. in Redis.</p>
+ *
+ * <p>Cached values are stored as plain JSON strings (via Spring's own
+ * auto-configured, JSR-310-aware {@code ObjectMapper} and Redisson's
+ * {@code StringCodec}) rather than Redisson's generic JSON codec, to avoid
+ * its default polymorphic ("@class") typing.</p>
  */
 @Service
 public class LockedCacheService {
@@ -61,23 +68,25 @@ public class LockedCacheService {
 
 	private final RedissonClient redissonClient;
 	private final SlowBackingStore backingStore;
+	private final ObjectMapper objectMapper;
 
 	private final AtomicLong cacheHits = new AtomicLong();
 	private final AtomicLong lockWaits = new AtomicLong();
 
 	@Autowired
-	public LockedCacheService(RedissonClient redissonClient, SlowBackingStore backingStore) {
+	public LockedCacheService(RedissonClient redissonClient, SlowBackingStore backingStore, ObjectMapper objectMapper) {
 		this.redissonClient = redissonClient;
 		this.backingStore = backingStore;
+		this.objectMapper = objectMapper;
 	}
 
 	public Product get(String productId) {
-		RBucket<Product> bucket = redissonClient.getBucket(KEY_PREFIX + productId);
+		RBucket<String> bucket = redissonClient.getBucket(KEY_PREFIX + productId, StringCodec.INSTANCE);
 
-		Product cached = bucket.get();
-		if (cached != null) {
+		String cachedJson = bucket.get();
+		if (cachedJson != null) {
 			cacheHits.incrementAndGet();
-			return cached;
+			return readValue(cachedJson);
 		}
 
 		RLock lock = redissonClient.getLock(LOCK_PREFIX + productId);
@@ -88,15 +97,15 @@ public class LockedCacheService {
 			if (acquired) {
 				// Double-checked locking: someone else may have populated the cache
 				// between our first read and acquiring the lock.
-				Product recheck = bucket.get();
-				if (recheck != null) {
+				String recheckJson = bucket.get();
+				if (recheckJson != null) {
 					cacheHits.incrementAndGet();
-					return recheck;
+					return readValue(recheckJson);
 				}
 
 				log.info("LockedCacheService: lock acquired for {}, this request will call the backing store", productId);
 				Product product = backingStore.fetch(productId);
-				bucket.set(product, TTL.toSeconds(), TimeUnit.SECONDS);
+				bucket.set(writeValue(product), TTL.toSeconds(), TimeUnit.SECONDS);
 				return product;
 			}
 
@@ -123,20 +132,20 @@ public class LockedCacheService {
 	 * is about to be force-released), we fall back to computing it ourselves
 	 * rather than failing the request outright.
 	 */
-	private Product waitForCacheToBePopulated(RBucket<Product> bucket, String productId) {
+	private Product waitForCacheToBePopulated(RBucket<String> bucket, String productId) {
 		long deadline = System.currentTimeMillis() + LOCK_WAIT_TIME_MS;
 		while (System.currentTimeMillis() < deadline) {
-			Product cached = bucket.get();
-			if (cached != null) {
+			String cachedJson = bucket.get();
+			if (cachedJson != null) {
 				cacheHits.incrementAndGet();
-				return cached;
+				return readValue(cachedJson);
 			}
 			sleepQuietly(POLL_INTERVAL_MS);
 		}
 
 		log.warn("LockedCacheService: gave up waiting for {}; falling back to a direct backing-store call", productId);
 		Product product = backingStore.fetch(productId);
-		bucket.set(product, TTL.toSeconds(), TimeUnit.SECONDS);
+		bucket.set(writeValue(product), TTL.toSeconds(), TimeUnit.SECONDS);
 		return product;
 	}
 
@@ -159,5 +168,21 @@ public class LockedCacheService {
 	public void resetCounters() {
 		cacheHits.set(0);
 		lockWaits.set(0);
+	}
+
+	private String writeValue(Product product) {
+		try {
+			return objectMapper.writeValueAsString(product);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private Product readValue(String json) {
+		try {
+			return objectMapper.readValue(json, Product.class);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
 	}
 }

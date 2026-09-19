@@ -2,20 +2,24 @@ package com.example.cachestampede.config;
 
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.config.Config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires up a single Redisson client used for two things in this demo:
- * <ul>
- *   <li>reading/writing cached values (via {@code RBucket}), and</li>
- *   <li>the distributed lock ({@code RLock}) that protects the "expensive"
- *       backing store from a cache stampede (a.k.a. dogpile effect / thundering
- *       herd) when many requests miss the cache for the same key at once.</li>
- * </ul>
+ * Wires up a single Redisson client used for the distributed lock
+ * ({@code RLock}) that protects the "expensive" backing store from a cache
+ * stampede (a.k.a. dogpile effect / thundering herd) when many requests miss
+ * the cache for the same key at once.
+ *
+ * <p>Cache VALUES themselves are stored as plain JSON strings (see
+ * {@link com.example.cachestampede.service.NaiveCacheService} /
+ * {@link com.example.cachestampede.service.LockedCacheService}, which use
+ * Spring's own auto-configured {@code ObjectMapper} - already JSR-310 aware -
+ * plus Redisson's built-in {@code StringCodec}) rather than Redisson's
+ * generic JSON codec, to sidestep its default polymorphic ("@class") typing,
+ * which is easy to get subtly wrong for record types.</p>
  */
 @Configuration
 public class RedissonConfig {
@@ -29,10 +33,6 @@ public class RedissonConfig {
 	@Bean(destroyMethod = "shutdown")
 	public RedissonClient redissonClient() {
 		Config config = new Config();
-		// JSON codec so cached values are human-readable in redis-cli / Redis
-		// Commander, and so we can store the Product record directly without
-		// hand-rolling our own serialization.
-		config.setCodec(new JsonJacksonCodec());
 		config.useSingleServer()
 				.setAddress("redis://" + redisHost + ":" + redisPort)
 				.setConnectionPoolSize(20)

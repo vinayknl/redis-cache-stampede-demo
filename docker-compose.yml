@@ -21,15 +21,3 @@ services:
       REDIS_PORT: 6379
     ports:
       - "8080:8080"
-
-  # Optional: browse Redis keys/TTLs while the demo runs.
-  # Visit http://localhost:8081 after `docker compose up`.
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: cache-stampede-redis-ui
-    depends_on:
-      - redis
-    environment:
-      REDIS_HOSTS: local:redis:6379
-    ports:
-      - "8081:8081"

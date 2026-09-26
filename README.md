@@ -1,5 +1,7 @@
 # Redis Distributed Cache-Locking Demo (Spring Boot + Gradle)
 
+[![CI](https://github.com/vinayknl/redis-cache-stampede-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/vinayknl/redis-cache-stampede-demo/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A small, runnable demo of **cache stampede** (a.k.a. the "dogpile effect" or
 "thundering herd") and how to prevent it with a **Redis-backed distributed
 lock**. Built with Spring Boot 3 / Java 21 / Gradle, and packaged with Docker.
@@ -125,3 +127,13 @@ acquired, calling backing store" line and N-1 "lock busy, waiting" lines.
   time while a single request (again gated by a lock) refreshes it in the
   background. That trades a moment of staleness for zero caller-facing
   latency spikes, which is worth it for many read-heavy workloads.
+
+## Contributing
+
+Contributions are welcome — bug fixes, clearer explanations, small well-scoped improvements. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get set up and what to expect from a PR review. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a security issue? See [SECURITY.md](SECURITY.md) rather than opening a public issue.
+
+## License
+
+[MIT](LICENSE) — do whatever you like with this, including using it as a starting point for your own demos or internal training material.

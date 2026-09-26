@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-smoke-test:
+    name: Build and smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start stack
+        run: docker compose up -d
+
+      - name: Wait for app to become healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/actuator/health > /dev/null; then
+              echo "App is up"
+              exit 0
+            fi
+            echo "Waiting for app... ($i/30)"
+            sleep 2
+          done
+          echo "App did not become healthy in time"
+          docker compose logs
+          exit 1
+
+      - name: Smoke test the naive endpoint
+        run: |
+          curl -sf http://localhost:8080/api/naive/ci-smoke-test | tee /tmp/naive.json
+          grep -q '"id":"ci-smoke-test"' /tmp/naive.json
+
+      - name: Smoke test the lock-protected endpoint
+        run: |
+          curl -sf http://localhost:8080/api/safe/ci-smoke-test | tee /tmp/safe.json
+          grep -q '"id":"ci-smoke-test"' /tmp/safe.json
+
+      - name: Check stats endpoint
+        run: curl -sf http://localhost:8080/api/stats
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
